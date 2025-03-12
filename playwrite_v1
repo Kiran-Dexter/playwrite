@@ -1,0 +1,118 @@
+# Use the full UBI 8 image
+FROM registry.access.redhat.com/ubi8:latest
+
+# Environment variables
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV EDGE_PATH=/usr/bin/microsoft-edge-stable
+
+# To avoid network issues during build, skip browser downloads.
+# (You can install the browsers later at runtime.)
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+# 1) Import Oracle Linux GPG key and add Oracle Linux 8 repos (baseos, appstream, codeready)
+RUN rpm --import https://yum.oracle.com/RPM-GPG-KEY-oracle-ol8 && \
+    cat <<EOF > /etc/yum.repos.d/oraclelinux-ol8-baseos.repo
+[ol8_baseos_latest]
+name=Oracle Linux 8 BaseOS Latest (\$basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL8/baseos/latest/\$basearch/
+gpgkey=https://yum.oracle.com/RPM-GPG-KEY-oracle-ol8
+gpgcheck=1
+enabled=1
+EOF
+
+RUN cat <<EOF > /etc/yum.repos.d/oraclelinux-ol8-appstream.repo
+[ol8_appstream]
+name=Oracle Linux 8 AppStream (\$basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL8/appstream/\$basearch/
+gpgkey=https://yum.oracle.com/RPM-GPG-KEY-oracle-ol8
+gpgcheck=1
+enabled=1
+EOF
+
+RUN cat <<EOF > /etc/yum.repos.d/oraclelinux-ol8-codeready.repo
+[ol8_codeready_builder]
+name=Oracle Linux 8 CodeReady Builder (\$basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL8/codeready/builder/\$basearch/
+gpgkey=https://yum.oracle.com/RPM-GPG-KEY-oracle-ol8
+gpgcheck=1
+enabled=1
+EOF
+
+# 2) Install dependencies (Java 17, 7zip, Git, tar/zip, etc.)
+#    Also installs xdg-utils, liberation-fonts, and mesa-vulkan-drivers for Edge.
+RUN dnf install -y \
+    glibc-langpack-en \
+    libX11 \
+    libXcomposite \
+    libXcursor \
+    libXdamage \
+    libXext \
+    libXi \
+    libXtst \
+    cups-libs \
+    libXScrnSaver \
+    libXrandr \
+    alsa-lib \
+    atk \
+    at-spi2-atk \
+    pango \
+    cairo \
+    dbus-glib \
+    libdrm \
+    libgbm \
+    libxkbcommon \
+    libwayland-client \
+    libwayland-server \
+    git \
+    tar \
+    zip \
+    unzip \
+    wget \
+    curl \
+    python3 \
+    python3-pip \
+    file \
+    java-17-openjdk \
+    p7zip \
+    dnf-utils \
+    xdg-utils \
+    liberation-fonts \
+    mesa-vulkan-drivers \
+    && dnf clean all
+
+# 3) Install Node.js 18 & npm@9
+RUN curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - && \
+    dnf install -y nodejs && \
+    npm install -g npm@9 && \
+    dnf clean all
+
+# 4) Manually install Xvfb (since xorg-x11-server-Xvfb is not in UBI8 repos)
+RUN curl -o /usr/bin/Xvfb https://github.com/jflesch/xvfb-binaries/releases/download/Xvfb_1.20.12/Xvfb && \
+    chmod +x /usr/bin/Xvfb
+
+# 5) Install Playwright (browsers will be skipped during build)
+RUN npm install -g playwright
+
+# 6) Install Microsoft Edge from official repo
+#    Reset and disable llvm-toolset to avoid modular filtering issues.
+#    Use --nobest and --allowerasing to work around filtered packages.
+RUN dnf -y module reset llvm-toolset && \
+    dnf -y module disable llvm-toolset && \
+    rpm --import https://packages.microsoft.com/keys/microsoft.asc && \
+    dnf config-manager --add-repo=https://packages.microsoft.com/yumrepos/edge && \
+    dnf install -y --nobest --allowerasing microsoft-edge-stable && \
+    dnf clean all
+
+# 7) Verify Edge installation
+RUN microsoft-edge-stable --version || echo "Edge might not be fully installed"
+
+# 8) Create a non-root user and set up working directory
+RUN useradd -m -s /bin/bash playwright && \
+    mkdir -p /app && \
+    chown -R playwright:playwright /app
+
+USER playwright
+WORKDIR /app
+
+# 9) Default entrypoint (browsers can be installed at runtime)
+ENTRYPOINT ["playwright"]
