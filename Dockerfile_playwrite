@@ -1,0 +1,51 @@
+# Use Ubuntu 24.04 as base image (recommended by Playwright)
+FROM ubuntu:24.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies (Git, curl, wget, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    vim \
+    tar \
+    curl \
+    wget \
+    unzip \
+    zip \
+    software-properties-common \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x (LTS) + latest npm
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g npm@latest && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install JDK 17
+RUN apt-get update && apt-get install -y openjdk-17-jdk && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python 3.12 and pip
+RUN apt-get update && apt-get install -y python3.12 python3.12-venv python3.12-dev python3-pip && \
+    ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Playwright & all browsers (Chrome, Edge, Firefox, WebKit) with dependencies
+RUN npm install -g playwright && \
+    playwright install --with-deps && \
+    rm -rf /var/lib/apt/lists/*
+
+# Verify installations
+RUN node -v && npm -v && java -version && python3 --version && git --version && playwright --version
+
+# Set working directory
+WORKDIR /app
+
+# Default command (for interactive use)
+CMD [ "bash" ]
+
