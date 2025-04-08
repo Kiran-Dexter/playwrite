@@ -1,0 +1,87 @@
+# -------- STAGE 1: Builder --------
+FROM debian:bookworm-slim AS builder
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    EDGE_PATH=/usr/bin/microsoft-edge-stable \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    DEBIAN_FRONTEND=noninteractive
+
+# 1. Install build dependencies and browser libs
+RUN apt-get update && apt-get install -y \
+    wget curl gnupg ca-certificates apt-transport-https software-properties-common \
+    unzip zip git tar file xdg-utils xvfb \
+    python3.11 python3-pip openjdk-17-jdk \
+    libglib2.0-0 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
+    libatk1.0-0 libatk-bridge2.0-0 libcups2 libdbus-glib-1-2 libdrm2 libgbm1 \
+    libgtk-3-0 libgtk-4-1 libgraphene-1.0-0 libxslt1.1 libwoff1 \
+    libvpx7 libevent-2.1-7 libopus0 \
+    libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools \
+    libwebpdemux2 libwebpmux3 libharfbuzz-icu0 \
+    libenchant-2-2 libsecret-1-0 libhyphen0 libmanette-0.2-0 \
+    libx264-dev libflite1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 2. Install Node.js 18 + npm 9
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get update && apt-get install -y nodejs && \
+    npm install -g npm@9 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 3. Install Playwright and all supported browsers
+RUN npm install -g playwright && \
+    npx playwright install --with-deps
+
+# 4. Install Microsoft Edge
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
+    install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
+    echo "deb [arch=amd64] https://packages.microsoft.com/repos/edge stable main" > /etc/apt/sources.list.d/microsoft-edge.list && \
+    apt-get update && \
+    apt-get install -y microsoft-edge-stable && \
+    rm microsoft.gpg && rm -rf /var/lib/apt/lists/*
+
+# 5. Create non-root user and directories
+RUN useradd -m -s /bin/bash playwright && \
+    mkdir -p /ms-playwright /app && \
+    chown -R playwright:playwright /ms-playwright /app && \
+    chmod -R 777 /ms-playwright /app
+
+
+# -------- STAGE 2: Final Runtime Image --------
+FROM debian:bookworm-slim
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    EDGE_PATH=/usr/bin/microsoft-edge-stable \
+    DEBIAN_FRONTEND=noninteractive
+
+# 1. Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
+    libatk1.0-0 libatk-bridge2.0-0 libcups2 libdbus-glib-1-2 libdrm2 libgbm1 \
+    libgtk-3-0 libgtk-4-1 libgraphene-1.0-0 libxslt1.1 libwoff1 \
+    libvpx7 libevent-2.1-7 libopus0 \
+    libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools \
+    libwebpdemux2 libwebpmux3 libharfbuzz-icu0 \
+    libenchant-2-2 libsecret-1-0 libhyphen0 libmanette-0.2-0 \
+    libx264-dev libflite1 \
+    python3.11 python3-pip openjdk-17-jdk nodejs \
+    xvfb xdg-utils \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 2. Copy runtime artifacts from builder
+COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=builder /usr/bin/microsoft-edge-stable /usr/bin/microsoft-edge-stable
+COPY --from=builder /ms-playwright /ms-playwright
+COPY --from=builder /app /app
+
+# 3. Setup non-root user and fix permissions
+RUN useradd -m -s /bin/bash playwright && \
+    chown -R playwright:playwright /ms-playwright /app && \
+    chmod -R 777 /ms-playwright /app
+
+USER playwright
+WORKDIR /app
+
+ENTRYPOINT ["/bin/bash"]
